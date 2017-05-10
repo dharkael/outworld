@@ -8,6 +8,7 @@ import android.view.*
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import com.bluelinelabs.conductor.RouterTransaction
+import com.jakewharton.rxbinding2.view.clicks
 import com.jakewharton.rxbinding2.widget.editorActionEvents
 import com.jakewharton.rxbinding2.widget.textChangeEvents
 import io.reactivex.Observable
@@ -57,8 +58,6 @@ class StopListController : BaseController, OnItemClickListener<StopEntity> {
             val service = retrofit.create<OCTranspoService>(OCTranspoService::class.java)
             transpoAPI = OCTranspoAPIImpl(service)
         }
-
-
     }
 
     constructor(ioManager: IOManager) {
@@ -78,16 +77,13 @@ class StopListController : BaseController, OnItemClickListener<StopEntity> {
 
     val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
-
     init {
         setHasOptionsMenu(true)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup): View {
-
         val view = inflater.inflate(R.layout.controller_stop_list, container, false)
         val context = container.context
-
 
         view.stop_list_recycler_view.adapter = adapter
         view.stop_list_recycler_view.layoutManager = LinearLayoutManager(context)
@@ -129,14 +125,13 @@ class StopListController : BaseController, OnItemClickListener<StopEntity> {
     }
 
     fun bindViews(view: View) {
-
         compositeDisposable.apply {
 
             add(view.stop_list_filter.editorActionEvents(Predicate { it.actionId() == EditorInfo.IME_ACTION_DONE })
                     .subscribe {
                         //val stop = it.view().text.toString()
                         hideSoftKeyboard()
-                       // getRouteSummaryForStop(stop)
+                        // getRouteSummaryForStop(stop)
 
                     }
             )
@@ -144,7 +139,26 @@ class StopListController : BaseController, OnItemClickListener<StopEntity> {
                     .textChangeEvents()
                     .map { it.text().toString() }.debounce(200, TimeUnit.MILLISECONDS)
             add(
-                adapter.subscribeFilter(filter)
+                    adapter.subscribeFilter(filter)
+            )
+            add(
+                    view.stop_list_filter
+                            .textChangeEvents()
+                            .map {
+                                if (it.text().isEmpty()) {
+                                    View.GONE
+                                } else {
+                                    View.VISIBLE
+                                }
+                            }
+                            .subscribe {
+                                view.stop_list_clear_filter.visibility = it
+                            }
+            )
+            add(view.stop_list_clear_filter.clicks()
+                    .subscribe {
+                        view.stop_list_filter.text.clear()
+                    }
             )
         }
     }
@@ -170,35 +184,32 @@ class StopListController : BaseController, OnItemClickListener<StopEntity> {
             holder.root.setOnClickListener { listener.onItemClick(item) }
             holder.root.home_stop_item_name.text = item.name
             holder.root.home_stop_item_code.text = item.code
-
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
-
             val inflater = LayoutInflater.from(parent.context)
             val view = inflater.inflate(R.layout.home_stop_item, parent, false)
 
             val holder = Holder(view)
             return holder
-
         }
 
         override fun performQuery(): Result<StopEntity> {
             return data.select(StopEntity::class)
-                    .where(StopEntity::name.like("%$filter%").or(StopEntity::code.like("$filter%")) )
+                    .where(StopEntity::name.like("%$filter%").or(StopEntity::code.like("$filter%")))
                     .orderBy(StopEntity.NAME).get()
         }
 
-        private var filter:String =""
-        private var disposable:Disposable? = null
-        fun subscribeFilter(filter: Observable<String>): Disposable{
+        private var filter: String = ""
+        private var disposable: Disposable? = null
+        fun subscribeFilter(filter: Observable<String>): Disposable {
             disposable?.dispose()
-            val response  = filter.subscribe {
+            val response = filter.subscribe {
                 this.filter = it
                 queryAsync()
             }
             disposable = response
-           return response
+            return response
         }
     }
 
