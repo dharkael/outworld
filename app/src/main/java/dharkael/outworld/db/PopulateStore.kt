@@ -1,36 +1,38 @@
 package dharkael.outworld.db
 
 import android.util.Log
+import dharkael.outworld.db.model.CalendarDateEntity
+import dharkael.outworld.db.model.CalendarEntity
+import dharkael.outworld.db.model.StopEntity
+import dharkael.outworld.db.model.TripEntity
 import io.reactivex.Observable
 import io.requery.Persistable
 import io.requery.reactivex.KotlinReactiveEntityStore
 import org.apache.commons.csv.CSVFormat.DEFAULT
 import org.apache.commons.csv.CSVRecord
-import dharkael.outworld.db.model.CalendarDateEntity
-import dharkael.outworld.db.model.CalendarEntity
-import dharkael.outworld.db.model.StopEntity
-import dharkael.outworld.db.model.TripEntity
+import java.io.File
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.zip.ZipFile
 
-class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFile: ZipFile) {
+class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: File, val chunkSize:Int = 1000) {
 
     companion object {
         val STOP_FILENAME = "stops.txt"
         val TRIP_FILENAME = "trips.txt"
         val CALENDAR_DATE_FILENAME = "calendar_dates.txt"
         val CALENDAR_FILENAME = "calendar.txt"
-        val dateFormat = SimpleDateFormat("yyyyMMDD",Locale.US)
+        val dateFormat = SimpleDateFormat("yyyyMMDD", Locale.US)
         val zeroDate = Date(0)
         val stopEntity = StopEntity()
         val tripEntity = TripEntity()
     }
 
-    internal fun String.toDate():Date{
+    //val zipFile = ZipFile(file)
+    internal fun String.toDate(): Date {
         val date: Date? = dateFormat.parse(this)
-        return date?: zeroDate
+        return date ?: zeroDate
     }
 
     internal fun String.toBoolFromInt(): Boolean {
@@ -41,41 +43,56 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
             fileName: String, transform: (CSVRecord) -> R,
             predicate: ((R) -> Boolean)? = null
     )
-            : Observable<Iterable<R>> {
-        //TODO Rather than read the entire list into memory
-        //TODO consider processing in chunks/batches
+            : Int {
+        val localPredicate = predicate ?: { true }
+        var count = 0
 
-       // Log.i("PopulateStore", "$fileName: begins")
-        val entry = zipFile.getEntry(fileName)
-        InputStreamReader(zipFile.getInputStream(entry))
-                .use { isr ->
-                    val csvFormat = DEFAULT.withIgnoreEmptyLines(true)
-                            .withAllowMissingColumnNames()
-                            .withFirstRecordAsHeader()
-
-
-                    val entities: List<R> = csvFormat
-                            .parse(isr)
-                            .map(transform)
-
-                    val filtered = if (predicate != null) entities.filter(predicate) else entities
-                    return data.insert(filtered).toObservable().doFinally {
-                        Log.i("PopulateStore", "$fileName: ends")
+        val zipFile = ZipFile(file)
+        zipFile.use {
+            val entry = zipFile.getEntry(fileName)
+            InputStreamReader(zipFile.getInputStream(entry))
+                    .use { isr ->
+                        val csvFormat = DEFAULT.withIgnoreEmptyLines(true)
+                                .withAllowMissingColumnNames()
+                                .withFirstRecordAsHeader()
+                        val parser = csvFormat.parse(isr)
+                        parser.use {
+                            Log.i("PopulateStore", "$fileName: begins")
+                            val entities: MutableList<R> = mutableListOf()
+                            for (record in parser) {
+                                val entity = transform(record)
+                                if (localPredicate(entity)) {
+                                    entities.add(entity)
+                                    val size = entities.size
+                                    if (size >= chunkSize) {
+                                        data.insert(entities).blockingGet()
+                                        entities.clear()
+                                        count += size
+                                    }
+                                }
+                            }
+                            if (entities.isNotEmpty()) {
+                                data.insert(entities).blockingGet()
+                                count += entities.size
+                                entities.clear()
+                            }
+                            Log.i("PopulateStore", "$fileName: ends")
+                        }
                     }
-
-                }
+        }
+        return count
     }
 
     internal object StopHeaders {
-        val stop_id=0
-        val stop_code=1
-        val stop_name=2
+        val stop_id = 0
+        val stop_code = 1
+        val stop_name = 2
         //val stop_desc=3
-        val stop_lat=4
-        val stop_lon=5
+        val stop_lat = 4
+        val stop_lon = 5
         //val zone_id=6
         //val stop_url=7
-        val location_type=8
+        val location_type = 8
     }
 
     internal fun mapStopRecordToEntity(record: CSVRecord): StopEntity {
@@ -100,7 +117,7 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
                         get(StopHeaders.stop_lon).toDouble())
 
                 entity.setLocationType(get(StopHeaders.location_type).toInt())
-            }catch (_:Exception){
+            } catch (_: Exception) {
                 entity = stopEntity
             }
         }
@@ -108,20 +125,20 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
 
     }
 
-    fun populateStops(): Observable<Iterable<StopEntity>> {
-        val filter:(StopEntity) -> Boolean = {
-           it !== stopEntity
+    fun populateStops(): Int {
+        val filter: (StopEntity) -> Boolean = {
+            it !== stopEntity
         }
         return populateEntity(STOP_FILENAME, this::mapStopRecordToEntity, filter)
     }
 
     internal object TripHeaders {
-        val route_id=0
-        val service_id=1
+        val route_id = 0
+        val service_id = 1
         val trip_id = 2
-        val trip_headsign=3
-        val direction_id= 4
-        val block_id=5
+        val trip_headsign = 3
+        val direction_id = 4
+        val block_id = 5
     }
 
     internal fun mapTripRecordToEntity(record: CSVRecord): TripEntity {
@@ -146,7 +163,7 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
 
                 entity.setBlockId(
                         get(TripHeaders.block_id).toInt())
-            }catch (_:Exception){
+            } catch (_: Exception) {
                 entity = tripEntity
             }
         }
@@ -154,14 +171,14 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
 
     }
 
-    fun populateTrips(): Observable<Iterable<TripEntity>> {
-        val filter:(TripEntity) -> Boolean = {
+    fun populateTrips(): Int {
+        val filter: (TripEntity) -> Boolean = {
             it !== tripEntity
         }
         return populateEntity(TRIP_FILENAME, this::mapTripRecordToEntity, filter)
     }
 
-    internal object  CalendarDateHeaders {
+    internal object CalendarDateHeaders {
         val service_id = 0
         val date = 1
         val exception_type = 2
@@ -171,8 +188,8 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
         val entity = CalendarDateEntity()
         record.apply {
 
-           entity.setDate(
-                   get(CalendarDateHeaders.date).toDate())
+            entity.setDate(
+                    get(CalendarDateHeaders.date).toDate())
 
             entity.setExceptionType(
                     get(CalendarDateHeaders.exception_type).toInt())
@@ -184,8 +201,8 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
         return entity
     }
 
-    fun populateCalendarDate(): Observable<Iterable<CalendarDateEntity>> {
-        val filter:(CalendarDateEntity) -> Boolean = {
+    fun populateCalendarDate(): Int {
+        val filter: (CalendarDateEntity) -> Boolean = {
             it.date.after(zeroDate)
         }
         return populateEntity(CALENDAR_DATE_FILENAME, this::mapCalendarDateRecordToEntity, filter)
@@ -194,21 +211,21 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
     internal object CalendarHeaders {
         val service_id = 0
         val monday = 1
-        val tuesday= 2
+        val tuesday = 2
         val wednesday = 3
-        val thursday= 4
+        val thursday = 4
         val friday = 5
         val saturday = 6
         val sunday = 7
-        val start_date= 8
+        val start_date = 8
         val end_date = 9
     }
 
-    internal fun mapCalendarRecordToEntity(record: CSVRecord): CalendarEntity{
+    internal fun mapCalendarRecordToEntity(record: CSVRecord): CalendarEntity {
         val entity = CalendarEntity()
         record.apply {
 
-            Log.i("PopulateStore",record.toMap().keys.toString() + " ${record.recordNumber}")
+            Log.i("PopulateStore", record.toMap().keys.toString() + " ${record.recordNumber}")
 
             entity.setServiceId(
                     get(CalendarHeaders.service_id))
@@ -244,39 +261,31 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val zipFil
         return entity
     }
 
-    fun populateCalendar(): Observable<Iterable<CalendarEntity>> {
-        val filter:(CalendarEntity) -> Boolean = {
+    fun populateCalendar(): Int {
+        val filter: (CalendarEntity) -> Boolean = {
             it.startDate.after(zeroDate) &&
                     it.endDate.after(zeroDate)
         }
         return populateEntity(CALENDAR_FILENAME, this::mapCalendarRecordToEntity, filter)
     }
 
-    fun populateAll(): Observable<Boolean> {
-        //delete previous data
-        //the .get().value() is required to realize the delete
-        data.delete(StopEntity::class).get().value()
-        data.delete(CalendarEntity::class).get().value()
-        data.delete(CalendarDateEntity::class).get().value()
-        data.delete(TripEntity::class).get().value()
+    fun populateAll(): Observable<Int> {
+        return Observable.fromCallable {
+            //delete previous data
+            //the .get().value() is required to realize the delete
+            data.delete(StopEntity::class).get().value()
+            data.delete(CalendarEntity::class).get().value()
+            data.delete(CalendarDateEntity::class).get().value()
+            data.delete(TripEntity::class).get().value()
 
-        //TODO memory can we do this serially
-        //TODO defer the call of subsequent populates until previous completes
+            var count = 0
 
-        return populateStops().flatMap {
-            populateTrips()
-        }.flatMap {
-            populateCalendar()
-        }.flatMap {
-            populateCalendarDate()
-        }.flatMap {
-            Observable.just(true)
+            count += populateStops()
+            count += populateTrips()
+            count += populateCalendar()
+            count += populateCalendarDate()
+
+            count
         }
-
     }
-
-
-
-
-
 }

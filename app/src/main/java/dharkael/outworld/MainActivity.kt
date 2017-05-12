@@ -8,6 +8,12 @@ import android.view.View
 import com.bluelinelabs.conductor.Conductor
 import com.bluelinelabs.conductor.Router
 import com.bluelinelabs.conductor.RouterTransaction
+import dharkael.outworld.controller.StopListController
+import dharkael.outworld.db.PopulateStore
+import dharkael.outworld.io.IOManager
+import dharkael.outworld.io.IOManagerImpl
+import dharkael.outworld.io.network.OCTranspoAPIImpl
+import dharkael.outworld.io.network.OCTranspoService
 import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
@@ -16,14 +22,7 @@ import kotlinx.android.synthetic.main.activity_main.*
 import retrofit2.Retrofit
 import retrofit2.adapter.rxjava2.RxJava2CallAdapterFactory
 import retrofit2.converter.moshi.MoshiConverterFactory
-import dharkael.outworld.controller.StopListController
-import dharkael.outworld.db.PopulateStore
-import dharkael.outworld.io.IOManager
-import dharkael.outworld.io.IOManagerImpl
-import dharkael.outworld.io.network.OCTranspoAPIImpl
-import dharkael.outworld.io.network.OCTranspoService
 import java.io.File
-import java.util.zip.ZipFile
 
 
 class MainActivity : AppCompatActivity() {
@@ -138,18 +137,15 @@ class MainActivity : AppCompatActivity() {
                     if (it > originalLastModified) {
                         val filesDir: File = application.filesDir
                         val file = File(filesDir, StopListController.GOOGLE_TRANSIT_ZIP)
-                        val zipFile = ZipFile(file)
-                        val populateStore = PopulateStore(data = (applicationContext as App).dataStore, zipFile = zipFile)
+                        val populateStore = PopulateStore(data = (applicationContext as App).dataStore, file = file)
                         populateStore.populateAll()
                                 .subscribeOn(Schedulers.io())
                                 .observeOn(AndroidSchedulers.mainThread())
                                 .subscribe({
                                     progressShown = false
-                                    zipFile.close()
                                     transitionToRoot()
-
                                 }, {
-                                    zipFile.close()
+                                    Log.e("MainActivity", it.message)
                                 })
                     } else {
                         progressShown = false
