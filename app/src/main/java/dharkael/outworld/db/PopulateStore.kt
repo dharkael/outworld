@@ -1,10 +1,7 @@
 package dharkael.outworld.db
 
 import android.util.Log
-import dharkael.outworld.db.model.CalendarDateEntity
-import dharkael.outworld.db.model.CalendarEntity
-import dharkael.outworld.db.model.StopEntity
-import dharkael.outworld.db.model.TripEntity
+import dharkael.outworld.db.model.*
 import io.reactivex.Observable
 import io.requery.Persistable
 import io.requery.reactivex.KotlinReactiveEntityStore
@@ -16,13 +13,14 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.zip.ZipFile
 
-class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: File, val chunkSize:Int = 1000) {
+class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: File, val chunkSize: Int = 1000) {
 
     companion object {
         val STOP_FILENAME = "stops.txt"
         val TRIP_FILENAME = "trips.txt"
         val CALENDAR_DATE_FILENAME = "calendar_dates.txt"
         val CALENDAR_FILENAME = "calendar.txt"
+        val STOP_TIME_FILENAME = "stop_times.txt"
         val dateFormat = SimpleDateFormat("yyyyMMDD", Locale.US)
         val zeroDate = Date(0)
         val stopEntity = StopEntity()
@@ -96,7 +94,6 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: 
     }
 
     internal fun mapStopRecordToEntity(record: CSVRecord): StopEntity {
-        //Log.i("mapStopRecordToEntity", "${record.recordNumber}")
         var entity = StopEntity()
         record.apply {
             try {
@@ -225,8 +222,6 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: 
         val entity = CalendarEntity()
         record.apply {
 
-            Log.i("PopulateStore", record.toMap().keys.toString() + " ${record.recordNumber}")
-
             entity.setServiceId(
                     get(CalendarHeaders.service_id))
 
@@ -269,6 +264,52 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: 
         return populateEntity(CALENDAR_FILENAME, this::mapCalendarRecordToEntity, filter)
     }
 
+    internal object StopTimeHeaders {
+        val trip_id = 0
+        val arrival_time = 1
+        val departure_time = 2
+        val stop_id = 3
+        val stop_sequence = 4
+        val pickup_type = 5
+        val drop_off_type = 6
+    }
+
+    internal fun mapStopTimeRecordToEntity(record: CSVRecord): StopTimeEntity {
+        val entity = StopTimeEntity()
+        record.apply {
+
+            entity.setTripId(
+                    get(StopTimeHeaders.trip_id))
+
+            entity.setArrivalTime(
+                    get(StopTimeHeaders.arrival_time))
+
+            entity.setDepartureTime(
+                    get(StopTimeHeaders.departure_time))
+
+            entity.setStopId(
+                    get(StopTimeHeaders.stop_id))
+
+            entity.setStopSequence(
+                    get(StopTimeHeaders.stop_sequence).toInt())
+
+            entity.setPickupType(
+                    get(StopTimeHeaders.pickup_type).toInt())
+
+            entity.setDropOffType(
+                    get(StopTimeHeaders.drop_off_type).toInt())
+
+        }
+        return entity
+    }
+
+    fun populateStopTime(): Int {
+        val filter: (StopTimeEntity) -> Boolean = {
+            true
+        }
+        return populateEntity(STOP_TIME_FILENAME, this::mapStopTimeRecordToEntity, filter)
+    }
+
     fun populateAll(): Observable<Int> {
         return Observable.fromCallable {
             //delete previous data
@@ -277,6 +318,7 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: 
             data.delete(CalendarEntity::class).get().value()
             data.delete(CalendarDateEntity::class).get().value()
             data.delete(TripEntity::class).get().value()
+            data.delete(StopTimeEntity::class).get().value()
 
             var count = 0
 
@@ -284,6 +326,7 @@ class PopulateStore(val data: KotlinReactiveEntityStore<Persistable>, val file: 
             count += populateTrips()
             count += populateCalendar()
             count += populateCalendarDate()
+            count += populateStopTime()
 
             count
         }
